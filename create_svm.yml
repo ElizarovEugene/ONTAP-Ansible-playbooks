@@ -1,0 +1,185 @@
+---
+- hosts: localhost
+  gather_facts: False
+  name: Create SVM
+  vars:
+    hostname: 192.168.1.130
+    username: admin
+    password: <PASSWORD>
+    vserver: AnsibleSVM
+  tasks:
+
+  - name: SVM Create
+    na_ontap_svm:
+      state: present
+      name: "{{ vserver }}"
+      root_volume: "{{ vserver }}_root"
+      root_volume_aggregate: aggr1
+      root_volume_security_style: unix
+      allowed_protocols: nfs,cifs,iscsi
+      hostname: "{{ hostname }}"
+      username: "{{ username }}"
+      password: "{{ password }}"
+      https: true
+      validate_certs: false
+      
+  - name: Create DNS
+    na_ontap_dns:
+      state: present
+      vserver: "{{ vserver }}"
+      hostname: "{{ hostname }}"
+      username: "{{ username }}"
+      password: "{{ password }}"
+      domains: korphome.local
+      nameservers: 192.168.1.216
+      skip_validation: true
+      https: true
+      validate_certs: false
+
+  - name: Create interface
+    na_ontap_interface:
+      state: present
+      interface_name: "{{ item.interface_name }}"
+      home_port: "{{ item.home_port }}"
+      home_node: "{{ item.node }}"
+      role: data
+      protocols: "{{ item.protocols }}"
+      admin_status: up
+      firewall_policy: mgmt
+      address: "{{ item.address }}"
+      netmask: 255.255.255.0
+      vserver: "{{ vserver }}"
+      hostname: "{{ hostname }}"
+      username: "{{ username }}"
+      password: "{{ password }}"
+      https: true
+      validate_certs: false
+    loop:
+      - { node: 'korphome-01',  interface_name: '{{ vserver }}_iscsi_1', protocols: 'iscsi', home_port: 'e0a', address: '192.168.1.165' }
+      - { node: 'korphome-01',  interface_name: '{{ vserver }}_iscsi_2', protocols: 'iscsi', home_port: 'e0a', address: '192.168.1.166' }
+      - { node: 'korphome-01',  interface_name: '{{ vserver }}_data_1', protocols: 'nfs,cifs', home_port: 'e0a', address: '192.168.1.167' }
+      - { node: 'korphome-01',  interface_name: '{{ vserver }}_data_2', protocols: 'nfs,cifs', home_port: 'e0a', address: '192.168.1.168' }
+      
+  - name: Start iscsi service
+    na_ontap_iscsi:
+      state: present
+      service_state: started
+      vserver: "{{ vserver }}"
+      hostname: "{{ hostname }}"
+      username: "{{ username }}"
+      password: "{{ password }}"
+      https: true
+      validate_certs: false
+      
+  - name: Create igroup
+    na_ontap_igroup:
+      state: present
+      name: ansibleIgroup
+      initiator_group_type: iscsi
+      ostype: vmware
+      initiator: iqn.1998-01.com.vmware:esxi6-68316bc6,iqn.1991-05.com.microsoft:veeamv10
+      vserver: "{{ vserver }}"
+      hostname: "{{ hostname }}"
+      username: "{{ username }}"
+      password: "{{ password }}"
+      https: true
+      validate_certs: false      
+      
+  - name: Start nfs service
+    na_ontap_nfs:
+      state: present
+      service_state: started
+      vserver: "{{ vserver }}"
+      nfsv3: disabled
+      nfsv4: disabled
+      nfsv41: enabled
+      tcp: disabled
+      udp: disabled
+      vstorage_state: disabled
+      nfsv4_id_domain: example.com
+      hostname: "{{ hostname }}"
+      username: "{{ username }}"
+      password: "{{ password }}"
+      https: true
+      validate_certs: false
+      
+  - name: Create ans start cifs service
+    na_ontap_cifs_server:
+      state: present
+      cifs_server_name: ontap
+      workgroup: korphome
+      service_state: started
+      vserver: "{{ vserver }}"
+      hostname: "{{ hostname }}"
+      username: "{{ username }}"
+      password: "{{ password }}"
+      https: true
+      validate_certs: false
+      
+  - name: Volume Create
+    na_ontap_volume:
+      state: present
+      name: "vol_{{ item.1.name }}"
+      vserver: "{{ vserver }}"
+      aggregate_name: "{{ item.0.aggr }}"
+      size: 30
+      size_unit: gb
+      policy: default
+      percent_snapshot_space: 0
+      efficiency_policy: default      
+      hostname: "{{ hostname }}"
+      username: "{{ username }}"
+      password: "{{ password }}"
+      https: true
+      validate_certs: false
+    loop: "{{ lookup('subelements', aggrs, 'volumes', {'skip_missing': True}) }}"
+    vars:
+      aggrs:
+      - { name: "aggr1", volumes: [11,13,15,17] }
+      - { name: "aggr1", volumes: [12,14,16,18] }
+
+  - name: Create LUN
+    na_ontap_lun:
+      state: present
+      name: "lun_{{ item }}"
+      flexvol_name: "vol_{{ item }}"
+      vserver: "{{ vserver }}"
+      size: 5
+      size_unit: mb
+      ostype: vmware
+      space_reserve: no
+      space_allocation: yes
+      hostname: "{{ hostname }}"
+      username: "{{ username }}"
+      password: "{{ password }}"
+      https: true
+      validate_certs: false
+    with_sequence: start=11 end=18
+
+  - name: Create LUN mapping
+    na_ontap_lun_map:
+      state: present
+      initiator_group_name: ansibleIgroup
+      lun_id: "{{ item }}"
+      path: "/vol/vol_{{ item }}/lun_{{ item }}"
+      vserver: "{{ vserver }}"
+      hostname: "{{ hostname }}"
+      username: "{{ username }}"
+      password: "{{ password }}"
+      https: true
+      validate_certs: false
+    with_sequence: start=11 end=18
+    
+  - name: Create CIFS share
+    na_ontap_cifs:
+      state: present
+      share_name: Share
+      path: /
+      share_properties: browsable,oplocks
+      symlink_properties: read_only,enable
+      vserver: "{{ vserver }}"
+      hostname: "{{ hostname }}"
+      username: "{{ username }}"
+      password: "{{ password }}"
+      https: true
+      validate_certs: false

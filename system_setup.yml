@@ -1,0 +1,75 @@
+---
+- hosts: localhost
+  gather_facts: False
+  name: System setup
+  vars:
+    hostname: 192.168.1.130
+    username: admin
+    password: <PASSWORD>
+  tasks:
+  
+  - name: Create Aggregates
+    na_ontap_aggregate:
+      state: present
+      service_state: online
+      name: "{{ item.aggr }}"
+      disk_count: "{{ item.disk_count }}"
+      hostname: "{{ hostname }}"
+      username: "{{ username }}"
+      password: "{{ password }}"
+      https: true
+      validate_certs: false
+    loop:
+      - { aggr: 'aggr1', disk_count: '13' }
+      - { aggr: 'aggr2', disk_count: '13' }
+    
+  - name: Create VLANs
+    na_ontap_net_vlan:
+      state: present
+      vlanid: "{{ item.vlanid }}"
+      node: "{{ item.node }}"
+      parent_interface: "{{ item.parent_interface }}"
+      hostname: "{{ hostname }}"
+      username: "{{ username }}"
+      password: "{{ password }}"
+      https: true
+      validate_certs: false
+    loop:
+      - { node: 'korphome-01', vlanid: '13', parent_interface: 'e0a' }
+      - { node: 'korphome-01', vlanid: '14', parent_interface: 'e0a' }
+      - { node: 'korphome-01', vlanid: '15', parent_interface: 'e0a' }
+      - { node: 'korphome-01', vlanid: '16', parent_interface: 'e0a' }
+      
+  - name: Сreate broadcast domain
+    na_ontap_broadcast_domain:
+      state: present
+      name: ansible_domain
+      mtu: '1000'
+      ipspace: Default
+      ports: ["korphome-01:e0a-13", "korphome-01:e0a-14"]
+      hostname: "{{ hostname }}"
+      username: "{{ username }}"
+      password: "{{ password }}"
+      https: true
+      validate_certs: false
+
+  - name: Create ipspace
+    na_ontap_ipspace:
+      state: present
+      name: ansibleIpspace
+      hostname: "{{ hostname }}"
+      username: "{{ username }}"
+      password: "{{ password }}"
+      https: true
+      validate_certs: false
+      
+  - name: Create NTP server
+    na_ontap_ntp:
+      state: present
+      version: auto
+      server_name: "3.ru.pool.ntp.org"
+      hostname: "{{ hostname }}"
+      username: "{{ username }}"
+      password: "{{ password }}"
+      https: true
+      validate_certs: false
